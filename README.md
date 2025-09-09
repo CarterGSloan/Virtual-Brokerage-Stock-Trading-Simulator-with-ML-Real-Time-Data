@@ -1,6 +1,6 @@
 # Virtual Brokerage Account Manager (Python Terminal)
 
-Python terminal simulator for a brokerage account with real-time market data, ML-backed research, and a retro green TUI. Built to showcase end-to-end software engineering skills for data-driven systems relevant to NASA, Boeing, Lockheed Martin, Palantir, Raytheon, and similar organizations.
+Python terminal simulator for a brokerage account with real-time market data, ML-backed research, and a retro green TUI. Built to showcase end-to-end software engineering skills for data-driven systems.
 
 # Overview
 

@@ -1,18 +1,167 @@
-import json, os
+import json, os, shutil, time
+from datetime import datetime
 import yfinance as yf
 from stock_holding import StockHolding
 from stock_predictor import StockPredictor
+from tui_utils import print_header
 try:
     import plotext as plt
 except ImportError:
     plt = None
 from colorama import init, Fore, Style
 
+def sparkline(values, width=42):
+    """Return a one-line Unicode sparkline for the sequence of floats.
+    Uses 8 levels:▁▂▃▄▅▆▇█ (works well in most terminals).
+    """
+    if not values:
+        return ""
+    blocks = "▁▂▃▄▅▆▇█"
+    vmin = min(values)
+    vmax = max(values)
+    if vmax == vmin:
+        return blocks[0] * min(width, len(values))
+    #Resample to desired width if needed
+    data = values
+    n = len(values)
+    if n > width:
+        step = n / width
+        data = [values[int(i * step)] for i in range(width)]
+    out = []
+    for v in data:
+        idx = int((v - vmin) / (vmax - vmin) * (len(blocks) - 1))
+        out.append(blocks[idx])
+    return "".join(out)
+
+def fetch_price(symbol):
+    try:
+        t = yf.Ticker(symbol)
+        h = t.history(period="1d")
+        if h is None or h.empty:
+            return None
+        return float(h["Close"].iloc[-1])
+    except Exception:
+        return None
+    
+def fetch_history(symbol, period="1y", interval="1d"):
+    try:
+        t = yf.Ticker(symbol)
+        h = t.history(period=period, interval=interval)
+        #drop rows with missing close
+        if h is not None and not h.empty:
+            h = h.dropna(subset=["Close"])   #Ensure plotting works
+        return h
+    except Exception:
+        return None
+    
+def market_index_rows():
+    """Return tuples: (label, symbol, last_price, change_pct, spark) for three indices."""
+    entries = []
+    indices = [
+        ("S&P 500", "^GSPC"), 
+        ("NASDAQ", "^IXIC"), 
+        ("NYSE", "^NYA"),
+    ]
+    for name, sym in indices:
+        hist = fetch_history(sym, period="3mo", interval="1d")
+        last = None
+        change_pct = None
+        sline = ""
+        if hist is not None and not hist.empty:
+            closes = [float(x) for x in hist["Close"].values.tolist()]
+            sline = sparkline(closes, width=36)
+            last = closes[-1]
+            if len(closes) >= 2:
+                prev = closes[-2]
+                if prev:
+                    change_pct = (last - prev) / prev * 100.0
+        entries.append((name, sym, last, change_pct, sline))
+    return entries
+
+def show_research_dashboard():
+    #Left pane header
+    print_header(Fore.GREEN + Style.BRIGHT + "\nResearch - Market Overview" + Style.RESET_ALL)
+
+    rows = market_index_rows()
+    #layout: name/symbol/last/change left, sparkline right on the same line
+    #compute pad so lines align in two columns
+    left_w = 36
+    for name, sym, last, chg, sline in rows:
+        last_str = f"${last:.2f}" if last is not None else "N/A"
+        chg_str = f"{chg:+.2f}%" if chg is not None else ""
+        left = f"{name} ({sym}) {last_str:>12} {chg_str:>8}"
+        left = left[:left_w].ljust(left_w)
+        print(Fore.GREEN + left + " " + sline + Style.RESET_ALL)
+    print(Fore.GREEN + "\nType a ticker to view its chart and prediction or 'back' to return." + Style.RESET_ALL)
+
+def show_symbol_chart(sym, hist):
+    #robust chart rendering: try plotext; always render a sparkline feedback
+    closes = [float(x) for x in hist["Close"].values.tolist()] if (hist is not None and not hist.empty) else []
+    #fallback sparkline(always) - printed first so user sees something even if plotext fails
+    if closes:
+        sline = sparkline(closes, width=60)
+        print(Fore.GREEN + f"\n{sym} 1Y Sparkline: " + sline + Style.RESET_ALL)
+    else:
+        print(Fore.GREEN + f"\nNo close data available to render sparkline for {sym}." + Style.RESET_ALL)
+    
+    if plt and hist is not None and not hist.empty:
+        try:
+            #plotext sizing based on terminal
+            cols, rows = shutil.get_terminal_size(fallback=(100, 30))
+            #leave a little room for labels
+            plot_w = max(60, min(cols - 4, 140))
+            plot_h = max(12, min(rows - 8, 32))
+            plt.clf()
+            plt.plotsize(plot_w, plot_h)
+            dates = [d.strftime("%Y-%m-%d") for d in hist.index]
+            prices = closes
+            plt.title(f"{sym} Price - Last 1Y")
+            plt.plot(dates, prices, marker="")
+            #reduce x ticks clutter
+            if len(dates) > 12:
+                step = len(dates) // 12
+                xticks = [dates[i] for i in range(0, len(dates), step)]
+                plt.xticks(xticks)
+            plt.show()
+        except Exception:
+            print(Fore.GREEN + "(Chart rendering skipped due to a terminal or plotting error.)" + Style.RESET_ALL)
+    else:
+        if plt is None:
+            print(Fore.GREEN + "(Install 'plotext' to enable full-size terminal charts.)" + Style.RESET_ALL)
+
+def research_scene(balance, portfolio, watchlist):
+    while True:
+        show_research_dashboard()
+        sym = input(Fore.GREEN + "> symbol: " + Style.RESET_ALL).strip()
+        if not sym:
+            continue
+        if sym.lower() in ("back", "b"):
+            break
+        sym = sym.upper()
+        hist = fetch_history(sym, period="1y", interval="1d")
+        if hist is None or hist.empty:
+            print(Fore.GREEN + f"Could not retieve data for {sym}." + Style.RESET_ALL)
+            continue
+        #current price
+        last_price = float(hist["Close"].iloc[-1])
+        print(Fore.GREEN + f"Current Price of {sym}: ${last_price:,.2f}" + Style.RESET_ALL)
+        #show chart (sparkline + plotext if avaliable)
+        show_symbol_chart(sym, hist)
+        #ML prediction
+        try:
+            predictor = StockPredictor(hist)
+            pred, reason = predictor.predict_next_day()
+            print(Fore.GREEN + f"Predicted Next Day Move: {pred}" + Style.RESET_ALL)
+            print(Fore.GREEN + f"Reasoning: {reason}" + Style.RESET_ALL)
+        except Exception:
+            print(Fore.GREEN + "ML Prediction unavailable (insufficient data or error)." + Style.RESET_ALL)
+        input(Fore.GREEN + "Press Enter to continue..." + Style.RESET_ALL)
+
 def main():
     #Initialize colorama for colored text ouput (green)
     init(autoreset=True)
     #welcome message
-    print(Fore.GREEN + Style.BRIGHT + "WELCOME TO YOUR VIRTUAL BROKERAGE ACCOUNT MANAGER" + Style.RESET_ALL)
+    print_header(Fore.GREEN + Style.BRIGHT + "WELCOME TO YOUR VIRTUAL BROKERAGE ACCOUNT MANAGER" + Style.RESET_ALL)
     print(Fore.GREEN + "Please login to continue." + Style.RESET_ALL)
     #Login prompt
     username = input(Fore.GREEN + "Username: " + Style.RESET_ALL)
@@ -72,11 +221,11 @@ def main():
     try:
         while True:
             #Display menu
-            print(Fore.GREEN + Style.BRIGHT + "\nMain Menu:" + Style.RESET_ALL)
+            print_header(Fore.GREEN + Style.BRIGHT + "\nMain Menu:" + Style.RESET_ALL)
             print(Fore.GREEN + "1. Account - View account balance and info" + Style.RESET_ALL)
             print(Fore.GREEN + "2. Portfolio - View or trade your holdings" + Style.RESET_ALL)
             print(Fore.GREEN + "3. Watchlist - Manage watchlist" + Style.RESET_ALL)
-            print(Fore.GREEN + "4. Research - Stock data and prediction" + Style.RESET_ALL)
+            print(Fore.GREEN + "4. Research - Index overview, charts, ML" + Style.RESET_ALL)
             print(Fore.GREEN + "5. Help - Show avaliable commands" + Style.RESET_ALL)
             print(Fore.GREEN + "6. Exit" + Style.RESET_ALL)
             choice = input(Fore.GREEN + "Enter a command or number: " + Style.RESET_ALL).strip().lower()
@@ -243,53 +392,8 @@ def main():
                         print(Fore.GREEN + "Unknown command. Use 'add', 'remove', or 'back'." + Style.RESET_ALL)
             elif choice in ["4", "research", "r"]:
                 # Research and prediction
-                while True:
-                    sym = input(Fore.GREEN + "Enter stock symbol to research (or 'back'): " + Style.RESET_ALL).strip().upper()
-                    if sym == "" or sym is None:
-                        continue
-                    if sym.lower() == "back" or sym.lower() == "b":
-                        break
-                    # Fetch 1-year historical data for the symbol
-                    try:
-                        ticker = yf.Ticker(sym)
-                        hist = ticker.history(period="1y")
-                    except Exception as e:
-                        hist = None
-                    if hist is None or hist.empty:
-                        print(Fore.GREEN + f"Could not retrieve data for symbol {sym}." + Style.RESET_ALL)
-                        continue
-                    # Display current price
-                    try:
-                        curr_price = hist['Close'].iloc[-1]
-                        print(Fore.GREEN + f"Current Price of {sym}: ${curr_price:.2f}" + Style.RESET_ALL)
-                    except Exception:
-                        pass
-                    # Display price history chart (if plotext is available)
-                    if plt:
-                        try:
-                            dates = [d.strftime("%Y-%m-%d") for d in hist.index]
-                            prices = list(hist['Close'])
-                            plt.clf()
-                            plt.theme("dark")
-                            plt.plot(dates, prices)
-                            plt.title(f"{sym} Price (Last 1Y)")
-                            plt.show()
-                        except Exception:
-                            print(Fore.GREEN + "(Unable to display chart)" + Style.RESET_ALL)
-                    else:
-                        print(Fore.GREEN + "(Chart not available - install plotext to view graph)" + Style.RESET_ALL)
-                    # Machine Learning prediction
-                    predictor = None
-                    try:
-                        predictor = StockPredictor(hist)
-                    except Exception:
-                        predictor = None
-                    if predictor is None:
-                        print(Fore.GREEN + "ML Prediction: Not available (insufficient data)" + Style.RESET_ALL)
-                    else:
-                        pred, reason = predictor.predict_next_day()
-                        print(Fore.GREEN + f"Predicted Next Day Move: {pred}" + Style.RESET_ALL)
-                        print(Fore.GREEN + f"Reasoning: {reason}" + Style.RESET_ALL)
+                research_scene(balance, portfolio, watchlist)
+
             else:
                 print(Fore.GREEN + "Unknown command. Type 'help' for options." + Style.RESET_ALL)
     except KeyboardInterrupt:
