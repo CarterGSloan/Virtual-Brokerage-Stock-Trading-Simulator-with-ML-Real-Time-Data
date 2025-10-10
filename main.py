@@ -26,49 +26,27 @@ LOG_DIR = Path("logs"); LOG_DIR.mkdir(exist_ok=True)
 PRED_CSV = LOG_DIR / "predictions.csv"
 USERS_FILE = "users.json"
 
-RUNE_ART = r"""                                                                                                     
-                             %%%                            
-                            %%%%%                           
-                          %%%%%%%%#                         
-                         %%%%%  %%%%                        
-                       %%%%%%    %%%%#                      
-                      #%%%%=      %%%%%                     
-                      #%%%.        %%%%%                    
-                      =%%%         %%%%%                    
-                      =%%%         %%%%=                    
-                      %%%%        :%%%%                     
-                      .%%%%       %%%%#                     
-                       =%%%%     :%%%%                      
-                        %%%%%    %%%%                       
-          %%%%%%%.       :%%%%  %%%%       +%%%%%#*+-       
-              %%%:         :%%%%%%%        %%%%:.           
-             % =%%%%%+       %%%%=    :%%%%%% =*            
-             =%  # %%%%%%%%%%%%%%%%%%%%%*  %   =            
-             %    % .*%%%%%##%%%%.+%%%%%   .                
-             %    *    %   %%%  %%% %  =                    
-             :         %  %%%   *%%%   =                    
-                       % %%%     %%%                        
-                       % %%%=    %%%.                       
-                       %  %%%.   %%%                        
-                %  %%% #    %%-*%%%      =%%.               
-                % %.--%%%%%%%%%%%%%%%%%%. .                 
-                    # *%%%- %% +%% :%%  %                   
-                        =% %%   *%%     #                   
-                       %  %%+    %%%    %                   
-                       -  %%%    %%%                        
-                        .  %%%  %%%                         
-                            =%%%%      .                    
-                   --  %%%%=%%%%#-=%%%* *                   
-                     %  %+  #%.%% .+%%.%                    
-                    :      =%#  %%- +                       
-                           %%   *%%.                        
-                           %%%  #%%                         
-                            +%% %%                          
-                              *%%                           
-                              %%%                           
-                              #%%                           
-                               %                            
-                               =                                                                                  
+RUNE_ART = r"""
+              ,---------------------------,
+              |  /---------------------\  |
+              | |                       | |
+              | |       Virtual         | |
+              | |      Brokerage        | |
+              | |       Account         | |
+              | |                       | |
+              |  \_____________________/  |
+              |___________________________|
+            ,---\_____     []     _______/------,
+          /         /______________\           /|
+        /___________________________________ /  | ___
+        |                                   |   |    )
+        |  _ _ _                 [-------]  |   |   (
+        |  o o o                 [-------]  |  /    _)_
+        |__________________________________ |/     /  /
+    /-------------------------------------/|      ( )/
+  /-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/ /
+/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/ /
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                     
 """
 
 def make_ascii_title(text: str) -> list[str]:
@@ -236,11 +214,11 @@ def login():
 def auth_menu():
     """Show authentication menu and handle user choice"""
     while True:
-        print_center(Fore.CYAN + Style.BRIGHT + "═══════════════════════════════════" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "1. Login" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "2. Sign Up (Create New Account)" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "3. Exit" + Style.RESET_ALL)
-        print_center(Fore.CYAN + Style.BRIGHT + "═══════════════════════════════════" + Style.RESET_ALL)
+        print_center(Fore.CYAN + Style.BRIGHT + "══════════════════════════════════════════" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "1) Login" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "2) Sign Up (Create New Account)" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "3) Exit" + Style.RESET_ALL)
+        print_center(Fore.CYAN + Style.BRIGHT + "══════════════════════════════════════════" + Style.RESET_ALL)
         print()
         
         choice = input(Fore.CYAN + "➤ Select an option (1-3): " + Style.RESET_ALL).strip()
