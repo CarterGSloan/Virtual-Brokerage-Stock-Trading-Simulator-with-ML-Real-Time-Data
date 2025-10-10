@@ -4,3 +4,11 @@ numpy
 scikit-learn
 plotext
 colorama
+lightgbm
+ta
+pandas-market-calendars
+pyfiglet
+
+
+
+
