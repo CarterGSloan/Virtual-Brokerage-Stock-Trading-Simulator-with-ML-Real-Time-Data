@@ -119,7 +119,7 @@ def make_ascii_title(text: str) -> list[str]:
 def render_welcome_screen():
     cols = term_width(120)
     title_lines = make_ascii_title("Virtual Brokerage")
-    art_lines = RUNE_ART.strip().splitline()
+    art_lines = RUNE_ART.strip().splitlines()
 
     #calculate widths
     title_width = max(len(ln) for ln in title_lines) 
