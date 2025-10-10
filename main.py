@@ -71,15 +71,20 @@ def render_welcome_screen():
     art_lines = RUNE_ART.strip().splitlines()
 
     #calculate widths
-    title_width = max(len(ln) for ln in title_lines) 
-    art_width = max(len(ln) for ln in art_lines) 
+    title_width = max(len(ln) for ln in title_lines) if title_lines else 0
+    art_width = max(len(ln) for ln in art_lines) if art_lines else 0
     gap = 4
 
     #Ensure it fits
     total_width = title_width + gap + art_width
     if total_width > cols:
         #Truncate art if needed
-        art_width = cols - title_width - gap - 2
+        available = cols - title_width
+        if available > art_width + 2:
+            gap = available - art_width
+        else:
+            gap = 2
+            art_width = available - gap 
     
     max_lines = max(len(title_lines), len(art_lines))
 
@@ -94,10 +99,19 @@ def render_welcome_screen():
 
         #Left justify title, right justify art
         title_part = title_line.ljust(title_width)
-        art_part = art_line.rjust(art_width) if art_line else  " " * art_width
 
-        print(Fore.CYAN + Style.BRIGHT + title_part + " " * gap + 
-              Fore.GREEN + art_part[:art_width] + Style.RESET_ALL)
+        # Right justify art (pad from the left to push it right)
+        # Preserve the exact art content without truncation
+        if art_line:
+            # Calculate padding needed to right-align
+            art_padding = max(0, art_width - len(art_line))
+            art_part = " " * art_padding + art_line
+        else:
+            art_part = " " * art_width
+        
+        print(Fore.CYAN + Style.BRIGHT + title_part + Style.RESET_ALL + 
+              " " * gap + 
+              Fore.CYAN + art_part + Style.RESET_ALL)
     
     print()
     print("═" * cols)
@@ -215,9 +229,9 @@ def auth_menu():
     """Show authentication menu and handle user choice"""
     while True:
         print_center(Fore.CYAN + Style.BRIGHT + "══════════════════════════════════════════" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "1) Login" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "2) Sign Up (Create New Account)" + Style.RESET_ALL)
-        print_center(Fore.CYAN + "3) Exit" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "1. Login" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "2. Sign Up (Create New Account)" + Style.RESET_ALL)
+        print_center(Fore.CYAN + "3. Exit" + Style.RESET_ALL)
         print_center(Fore.CYAN + Style.BRIGHT + "══════════════════════════════════════════" + Style.RESET_ALL)
         print()
         
