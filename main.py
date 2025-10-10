@@ -140,7 +140,7 @@ def render_welcome_screen():
     
     #Render side by side
     for i in range(max_lines):
-        title_line = title_lines[i] if i < len(title_lines) 
+        title_line = title_lines[i] if i < len(title_lines) else ""
         art_line = art_lines[i] if i < len(art_lines) else ""
 
         #Left justify title, right justify art
