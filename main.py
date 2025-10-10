@@ -27,26 +27,26 @@ PRED_CSV = LOG_DIR / "predictions.csv"
 USERS_FILE = "users.json"
 
 RUNE_ART = r"""
-              ,---------------------------,
-              |  /---------------------\  |
-              | |                       | |
-              | |       Virtual         | |
-              | |      Brokerage        | |
-              | |       Account         | |
-              | |                       | |
-              |  \_____________________/  |
-              |___________________________|
-            ,---\_____     []     _______/------,
-          /         /______________\           /|
-        /___________________________________ /  | ___
-        |                                   |   |    )
-        |  _ _ _                 [-------]  |   |   (
-        |  o o o                 [-------]  |  /    _)_
-        |__________________________________ |/     /  /
-    /-------------------------------------/|      ( )/
-  /-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/ /
-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/ /
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                     
+               ,---------------------------,
+               |  /---------------------\  |
+               | |                       | |
+               | |       Virtual         | |
+               | |      Brokerage        | |
+               | |       Account         | |
+               | |                       | |
+               |  \_____________________/  |
+               |___________________________|
+             ,---\_____     []     _______/------,
+           /         /______________\           /|
+         /___________________________________ /  |
+         ___         |                           |
+            )         |  _ _ _       [-------]  |
+           (         |  o o o       [-------]  |
+          /    _)_   |__________________________|
+        /     /  /     /-------------------------/|
+              ( )/   /-/-/-/-/-/-/-/-/-/-/-/-/-/ /
+         /-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/ /
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
 def make_ascii_title(text: str) -> list[str]:
@@ -68,7 +68,7 @@ def make_ascii_title(text: str) -> list[str]:
 def render_welcome_screen():
     cols = term_width(120)
     title_lines = make_ascii_title("Virtual Brokerage")
-    art_lines = RUNE_ART.strip().splitlines()
+    art_lines = [line.rstrip() for line in RUNE_ART.strip().splitlines()]
 
     #calculate widths
     title_width = max(len(ln) for ln in title_lines) if title_lines else 0
@@ -78,13 +78,8 @@ def render_welcome_screen():
     #Ensure it fits
     total_width = title_width + gap + art_width
     if total_width > cols:
-        #Truncate art if needed
-        available = cols - title_width
-        if available > art_width + 2:
-            gap = available - art_width
-        else:
-            gap = 2
-            art_width = available - gap 
+        #Reduce the gap if needed
+        gap = max(2, cols - title_width - art_width)
     
     max_lines = max(len(title_lines), len(art_lines))
 
@@ -102,16 +97,11 @@ def render_welcome_screen():
 
         # Right justify art (pad from the left to push it right)
         # Preserve the exact art content without truncation
-        if art_line:
-            # Calculate padding needed to right-align
-            art_padding = max(0, art_width - len(art_line))
-            art_part = " " * art_padding + art_line
-        else:
-            art_part = " " * art_width
+        art_part = art_line.ljust(art_width)
         
         print(Fore.CYAN + Style.BRIGHT + title_part + Style.RESET_ALL + 
               " " * gap + 
-              Fore.CYAN + art_part + Style.RESET_ALL)
+              Fore.CYAN + Style.BRIGHT + art_part + Style.RESET_ALL)
     
     print()
     print("═" * cols)
