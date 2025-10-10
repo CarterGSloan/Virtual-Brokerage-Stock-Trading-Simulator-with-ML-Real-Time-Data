@@ -644,7 +644,7 @@ def main():
                             total_val += value
 
                             pnl = ((curr_price - sh.avg_price) / sh.avg_price * 100) if sh.avg_price > 0 else 0
-                            pnl_color = Fore.GREEN f pnl >= 0 else Fore.RED
+                            pnl_color = Fore.GREEN if pnl >= 0 else Fore.RED
 
                             print(Fore.CYAN + f"{sh.symbol:<10}{sh.quantity:>10}{sh.avg_price:>12.2f}{curr_price:>12.2f}{value:>15.2f}" + pnl_color + f"{pnl:>11.2f}%" + Style.RESET_ALL)
                         print(Fore.CYAN + f"\nTotal Portfolio Value: " + Fore.GREEN + f"${total_val:,.2f}" + Style.RESET_ALL)
