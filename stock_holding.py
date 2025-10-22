@@ -4,11 +4,16 @@ class StockHolding:
     It tracks the stock ticker, total quantity of shares, and the average purchase price.
     """
     def __init__(self, symbol: str, quantity: int, price: float):
+        if quantity < 0:
+            raise ValueError("quantity cannot be negative.")
+        if price < 0:
+            raise ValueError("price cannot be negative.")
         self.symbol = symbol.upper()
-        self.quantity = quantity
+        self.quantity = int(quantity)
         #Average price per share 
-        self.avg_price = price
-    def add_shares(self, quantity: int, price: float):
+        self.avg_price = float(price)
+
+    def add_shares(self, quantity: int, price: float) -> None:
         """
         Add shares of the stock to this holding at the given price.
         The average price is recalculated as a weighted average.

@@ -8,6 +8,10 @@ lightgbm
 ta
 pandas-market-calendars
 pyfiglet
+seaborn
+logging
+
+
 
 
 

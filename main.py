@@ -1,5 +1,5 @@
 import json, os, shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import csv
 from pathlib import Path
 import pandas as pd
@@ -65,6 +65,11 @@ def make_ascii_title(text: str) -> list[str]:
     subtitle = [line.center(len(lines[0])) for line in text.splitlines()]
     return lines + [""] + subtitle
 
+def utc_now_iso(z_suffix: bool = True) -> str:
+    """Returns an ISO-8601 UTC timestamp.
+    set z_suffix=True to use 'Z' instead of '+00:00' for compactness"""
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return ts.replace("+00:00", "Z") if z_suffix else ts
 def render_welcome_screen():
     cols = term_width(120)
     title_lines = make_ascii_title("Virtual Brokerage")
@@ -111,31 +116,32 @@ def render_welcome_screen():
 # User Authentication System
 #----------------------------------
 
-def load_users():
+def load_users() -> dict:
     """Load user credentials from JSON file"""
     if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_FILE, 'r') as f:
-                return json.load(f)
+            with open(USERS_FILE, 'r', encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception:
             return {}
-        return {}
+    return {}
 
-def save_users(users_dict):
+def save_users(users_dict: dict) -> bool:
     """Save user credentials to JSON file"""
     try:
-        with open(USERS_FILE, 'w') as f:
+        with open(USERS_FILE, 'w', encoding="utf-8") as f:
             json.dump(users_dict, f, indent=4)
         return True
     except Exception as e:
         print(Fore.RED + f"Error saving users: {e}" + Style.RESET_ALL)
         return False
 
-def signup():
+def signup() -> Optional[tuple[str, str]]:
     """Handle new user registration"""
     users = load_users()
 
-    print_header(Fore.CYAN + Syle.BRIGHT + "\n✦ Create New Account ✦" + Style.RESET_ALL)
+    print_header(Fore.CYAN + Style.BRIGHT + "\n✦ Create New Account ✦" + Style.RESET_ALL)
     print()
     
     while True:
@@ -174,20 +180,21 @@ def signup():
         break
     
     # Save new user
+    data_file = f"user_{username}_data.json"
     users[username] = {
         "password": password,
         "created": datetime.now().isoformat(),
-        "data_file": f"user_{username}_data.json"
+        "data_file": data_file,
     }
     
     if save_users(users):
         print(Fore.GREEN + Style.BRIGHT + f"\n✓ Account created successfully! Welcome, {username}!" + Style.RESET_ALL)
-        return username, users[username]["data_file"]
+        return username, data_file
     else:
         print(Fore.RED + "Failed to create account. Please try again." + Style.RESET_ALL)
         return None
 
-def login():
+def login() -> Optional[tuple[str, str]]:
     """Handle user login"""
     users = load_users()
     
@@ -215,7 +222,7 @@ def login():
     
     return None
 
-def auth_menu():
+def auth_menu() -> Optional[tuple[str, str]]:
     """Show authentication menu and handle user choice"""
     while True:
         print_center(Fore.CYAN + Style.BRIGHT + "══════════════════════════════════════════" + Style.RESET_ALL)
@@ -237,7 +244,7 @@ def auth_menu():
                 return result
         elif choice == "3":
             print(Fore.CYAN + "➤ Goodbye!" + Style.RESET_ALL)
-            exit(0)
+            raise SystemExit(0)
         else:
             print(Fore.YELLOW + "➤ Invalid option. Please choose 1, 2, or 3." + Style.RESET_ALL)
 
@@ -246,9 +253,7 @@ def _next_trading_day_index(df: pd.DataFrame, as_of_idx: pd.Timestamp) -> Option
     # df index is trading dates; get the next one after as_of_idx
     idx = df.index
     pos = idx.searchsorted(as_of_idx, side="right")
-    if pos < len(idx):
-        return idx[pos]
-    return None
+    return idx[pos] if pos < len(idx) else None
 
 def log_prediction(symbol: str, 
                    timing: str, 
@@ -256,9 +261,10 @@ def log_prediction(symbol: str,
                    label: str,
                    decision: str,
                    stock_df: pd.DataFrame,
-                   market_df: pd.DataFrame):
+                   market_df: Optional[pd.DataFrame],
+) -> None:
     """   Append prediction and try to backfill realized outcomes for prior rows.  """
-    now_utc = datetime.utcnow().isoformat()
+    now_utc = utc_now_iso()
     today_idx = stock_df.index[-1]
     target_idx = _next_trading_day_index(stock_df, today_idx) if timing == "close" else today_idx
     today_close = float(stock_df["Close"].iloc[-1])
@@ -294,8 +300,12 @@ def log_prediction(symbol: str,
 
     # Try to backfill realized for any rows whose target_date <= latest available
     latest_date = stock_df.index[-1].date()
-    for i, row in df_log[df_log["realized_label"].eq("") & df_log["target_date"].ne("")].iterrows():
-        tgt_date = pd.to_datetime(row["target_date"]).date()
+    mask = (df_log["realized_label"].astype(str) == "") & (df_log["target_date"].astype(str) != "")
+    for i, row in df_log[mask].iterrows():
+        try:
+            tgt_date = pd.to_datetime(row["target_date"]).date()
+        except Exception:
+            continue
         if tgt_date <= latest_date:
             # find close on tgt_date
             try:
@@ -312,10 +322,10 @@ def log_prediction(symbol: str,
                     mret = (mc_tgt / mc_ref - 1.0) * 100.0
                     df_log.at[i, "market_ret"] = round(mret, 3)
             except KeyError:
-                # target date missing (holiday/newest day not in set yet); skip
-                pass
+                # target date missing (holiday/newest day not in set yet)
+                continue
             except Exception:
-                pass
+                continue
 
     df_log.to_csv(PRED_CSV, index=False)
 
@@ -325,22 +335,24 @@ def log_prediction(symbol: str,
 # Data helpers (yfinance)
 # -------------------------
 
-def fetch_ohlcv(symbol: str, period="3y", interval="1d") -> pd.DataFrame | None:
+def fetch_ohlcv(symbol: str, period: str="3y", interval: str="1d") -> pd.DataFrame | None:
     try:
         t = yf.Ticker(symbol)
-        h = t.history(period=period, interval=interval, auto_adjust=False)
+        h = t.history(period=period, interval=interval, auto_adjust=True)
         if h is None or h.empty:
             return None
         # Ensure expected columns exist
         need = {"Open", "High", "Low", "Close", "Volume"}
         if not need.issubset(set(h.columns)):
             return None
-        # Keep Adj Close if present for split/div adjustments in predictor
-        return h.dropna(subset=["Close"])
+        h = h.dropna(subset=["Close"])
+        if not isinstance(h.index, pd.DatatimeIndex):
+            h.index = pd.to_datetime(h.index)
+        return h
     except Exception:
         return None
 
-def fetch_price(symbol):
+def fetch_price(symbol) -> Optional[float]:
     try:
         t = yf.Ticker(symbol)
         h = t.history(period="1d")
@@ -350,7 +362,7 @@ def fetch_price(symbol):
     except Exception:
         return None
 
-def fetch_history(symbol, period="1y", interval="1d"):
+def fetch_history(symbol: str, period: str="1y", interval: str="1d") -> pd.DataFrame | None:
     return fetch_ohlcv(symbol, period=period, interval=interval)
 
 def sector_etf_for_symbol(symbol: str) -> str | None:
@@ -382,7 +394,7 @@ def sector_etf_for_symbol(symbol: str) -> str | None:
 # UI helpers
 # -------------------------
 
-def sparkline(values, width=42):
+def sparkline(values: list[float], width: int=42) -> str:
     if not values:
         return ""
     blocks = "▁▂▃▄▅▆▇█"
@@ -400,8 +412,8 @@ def sparkline(values, width=42):
         out.append(blocks[idx])
     return "".join(out)
 
-def market_index_rows():
-    entries = []
+def market_index_rows() -> list[tuple[str, str, Optional[float], Optional[float], str]]:
+    entries: list[tuple[str, str, Optional[float], Optional[float], str]] = []
     indices = [
         ("S&P 500", "^GSPC"),
         ("NASDAQ", "^IXIC"),
@@ -421,7 +433,7 @@ def market_index_rows():
         entries.append((name, sym, last, change_pct, sline))
     return entries
 
-def show_research_dashboard():
+def show_research_dashboard() -> None:
     print_header(Fore.CYAN + Style.BRIGHT + "\n📊 Research - Market Overview" + Style.RESET_ALL)
     rows = market_index_rows()
     left_w = 36
@@ -436,7 +448,7 @@ def show_research_dashboard():
     print(Fore.CYAN + f"⏱ Prediction timing: {PRED_TARGET_TIMING.upper()} - type 'toggle' to switch" + Style.RESET_ALL)
     print(Fore.CYAN + "\nType a ticker to view its chart and prediction or 'back' to return." + Style.RESET_ALL)
 
-def show_symbol_chart(sym, hist):
+def show_symbol_chart(sym: str, hist: Optional[pd.DataFrame]) -> None:
     closes = [float(x) for x in hist["Close"].values.tolist()] if (hist is not None and not hist.empty) else []
     if closes:
         sline = sparkline(closes, width=60)
@@ -470,7 +482,7 @@ def show_symbol_chart(sym, hist):
 # Research scene (uses predictor)
 # -------------------------
 
-def research_scene(balance, portfolio, watchlist):
+def research_scene(balance: float, portfolio: list[StockHolding], watchlist: list[str]) -> None:
     global PRED_TARGET_TIMING
     while True:
         show_research_dashboard()
@@ -525,7 +537,7 @@ def research_scene(balance, portfolio, watchlist):
                 print(Fore.CYAN + f"📊 Model AUC: {res.metrics['rolling_auc']:.3f}" + Style.RESET_ALL)
             
             # Log prediction and attempt to backfill previous realized outcomes 
-            log_prediction(sym, PRED_TARGET_TIMING, res.prob_up, res.label, res.descision, stock_df, market_df)
+            log_prediction(sym, PRED_TARGET_TIMING, res.prob_up, res.label, res.decision, stock_df, market_df)
         except Exception as e:
             print(Fore.YELLOW + f"⚠ ML Prediction unavailable: {e}" + Style.RESET_ALL)
 
@@ -535,7 +547,7 @@ def research_scene(balance, portfolio, watchlist):
 # App shell
 # -------------------------
 
-def main():
+def main() -> None:
     init(autoreset=True)
     render_welcome_screen()
 
@@ -547,22 +559,22 @@ def main():
     username, date_file = auth_result
 
     balance = 100000.0
-    portfolio = []
-    watchlist = []
+    portfolio: list[StockHolding] = []
+    watchlist: list[str] = []
 
-    if os.path.exists(data_file):
-        try:
-            with open(data_file, 'r') as f:
+    try:
+        if os.path.exists(data_file):
+            with open(data_file, 'r', encode="utf-8") as f:
                 saved = json.load(f)
-                balance = saved.get("balance", balance)
+                balance = float(saved.get("balance", balance))
                 for item in saved.get("portfolio", []):
                     sym = item["symbol"]; qty = item["quantity"]; avg = item.get("avg_price", 0.0)
                     portfolio.append(StockHolding(sym, qty, avg))
-                watchlist = saved.get("watchlist", watchlist)
-        except Exception:
-            balance = 100000.0; portfolio = []; watchlist = []
+                watchlist = list(saved.get("watchlist", watchlist))
+    except Exception:
+        balance = 100000.0; portfolio = []; watchlist = []
 
-    def save_data():
+    def save_data() -> None:
         data = {
             "balance": balance,
             "portfolio": [
@@ -571,12 +583,12 @@ def main():
             "watchlist": watchlist
         }
         try:
-            with open(data_file, 'w') as f:
+            with open(data_file, 'w', encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
             print(Fore.RED + f"⚠ Warning: could not save data: {e}" + Style.RESET_ALL)
 
-    def get_current_price(symbol):
+    def get_current_price(symbol: str) -> Optional[float]:
         return fetch_price(symbol)
 
     try:
