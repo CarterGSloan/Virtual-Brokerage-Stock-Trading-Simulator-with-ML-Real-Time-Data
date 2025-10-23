@@ -8,6 +8,9 @@ from stock_holding import StockHolding
 from stock_predictor import StockPredictor
 from tui_utils import print_header, print_center, term_width
 from typing import Optional
+import time 
+import socket 
+from functools import lru_cache
 try:
     import plotext as plt
 except ImportError:
@@ -27,7 +30,7 @@ PRED_CSV = LOG_DIR / "predictions.csv"
 USERS_FILE = "users.json"
 
 RUNE_ART = r"""
-              ,---------------------------,
+                          ,---------------------------,
               |  /---------------------\  |
               | |                       | |
               | |       Virtual         | |
@@ -65,11 +68,33 @@ def make_ascii_title(text: str) -> list[str]:
     subtitle = [line.center(len(lines[0])) for line in text.splitlines()]
     return lines + [""] + subtitle
 
+def _has_internet(timeout: float = 2.0) -> bool:
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=timeout)
+        return True
+    except Exception:
+        return False
+    
+def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame | None:
+    if df is None or df.empty:
+        return None
+    
+    # Handle multi-index columns from yf.download
+    if isinstance(df.columns, pd.MultiIndex):
+        # Prefer single symbol frame when possible
+        try:
+            # If structure is like: column level 0 = ['Open','High',...], level 1 = ticker
+            df = df.copy()
+            df.columns = [c[0] for c in df.columns]
+        except Exception:
+
+
 def utc_now_iso(z_suffix: bool = True) -> str:
     """Returns an ISO-8601 UTC timestamp.
     set z_suffix=True to use 'Z' instead of '+00:00' for compactness"""
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return ts.replace("+00:00", "Z") if z_suffix else ts
+
 def render_welcome_screen():
     cols = term_width(120)
     title_lines = make_ascii_title("Virtual Brokerage")
