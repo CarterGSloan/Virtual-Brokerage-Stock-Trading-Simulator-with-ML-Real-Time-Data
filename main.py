@@ -68,6 +68,7 @@ def make_ascii_title(text: str) -> list[str]:
     subtitle = [line.center(len(lines[0])) for line in text.splitlines()]
     return lines + [""] + subtitle
 
+# Quick connectivity probe (non-blocking)
 def _has_internet(timeout: float = 2.0) -> bool:
     try:
         socket.create_connection(("8.8.8.8", 53), timeout=timeout)
@@ -75,6 +76,7 @@ def _has_internet(timeout: float = 2.0) -> bool:
     except Exception:
         return False
     
+# Yahoo fetch with retires, fallbacks, and caching
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame | None:
     if df is None or df.empty:
         return None
@@ -87,12 +89,77 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame | None:
             df = df.copy()
             df.columns = [c[0] for c in df.columns]
         except Exception:
+            pass
+        needed = {"Open", "High", "Low", "Close", "Volume"}
+        if not needed.issubset(set(df.columns)):
+            return None
+        # Ensure DateTimeIndex (tz-naive)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                return None
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(None)
+        # Drop rows without Close 
+        df = df.dropna(subset=["Close"])
+        return df if not df.empty else None
+# In-memory cache to avoid hammering Yahoo during a single run
+_DATA_CACHE: dict[tuple[str, str, str, bool], pd.DataFrame] = {}
+
+def _yf_history(symbol: str, period: str, interval: str, auto_adjust: bool = False, retries: int = 3) -> pd.DataFrame | None:
+    key = (symbol, period, interval, auto_adjust)
+    cached = _DATA_CACHE.get(key)
+    if cached is not None and not cached.empty:
+        return cached
+    
+    # Primary attempt order per call 
+    attempts = []
+    attempts.append(("ticker.history", dict(period=period, interval=interval, auto_adjust=auto_adjust)))
+    attempts.append(("download", dict(period=period, interval=interval, auto_adjust=auto_adjust, progress=False)))
+
+    # Period fallbacks if empty: long -> short
+    fallback_periods = {
+        "10y": ["5y", "3y", "1y", "6mo", "3mo"],
+        "5y": ["3y", "1y", "6mo", "3mo"],
+        "3y": ["1y", "6mo", "3mo"],
+        "1y": ["6mo", "3mo"],
+        "6mo": ["3mo"],
+        "3mo": [],
+    }
+
+    periods_to_try = [period] + fallback_periods.get(period, [])
+    backoff = 0.6
+
+    for per in periods_to_try:
+        for attempt_name, kwargs in attempts:
+            for r in range(retries):
+                try:
+                    if attempt_name == "ticker.history":
+                        t = yf.Ticker(symbol)
+                        df = t.history(**kwargs | {"period": per})
+                    else:
+                        df = yf.download(tickers=symbol, **kwargs | {"period": per})
+                    df = _normalize_ohlcv(df)
+                    if df is not None and not df.empty:
+                        _DATA_CACHE[(symbol, per, interval, auto_adjust)] = df
+                        if per != period:
+                            # Also cache under the requested period key to prevent retries
+                            _DATA_CACHE[key] = df
+                        return df
+                except Exception:
+                    pass
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 4.0) # cap backoff
+    return None # all attempts failed
 
 
 def utc_now_iso(z_suffix: bool = True) -> str:
-    """Returns an ISO-8601 UTC timestamp.
-    set z_suffix=True to use 'Z' instead of '+00:00' for compactness"""
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    """
+    Returns an ISO-8601 UTC timestamp.
+    set z_suffix=True to use 'Z' instead of '+00:00' for compactness.
+    """
+    ts = datetime.now(timesone.utc).isoformat(timespec="seconds")
     return ts.replace("+00:00", "Z") if z_suffix else ts
 
 def render_welcome_screen():
@@ -361,34 +428,21 @@ def log_prediction(symbol: str,
 # -------------------------
 
 def fetch_ohlcv(symbol: str, period: str="3y", interval: str="1d") -> pd.DataFrame | None:
-    try:
-        t = yf.Ticker(symbol)
-        h = t.history(period=period, interval=interval, auto_adjust=True)
-        if h is None or h.empty:
-            return None
-        # Ensure expected columns exist
-        need = {"Open", "High", "Low", "Close", "Volume"}
-        if not need.issubset(set(h.columns)):
-            return None
-        h = h.dropna(subset=["Close"])
-        if not isinstance(h.index, pd.DatatimeIndex):
-            h.index = pd.to_datetime(h.index)
-        return h
-    except Exception:
-        return None
+    return _yf_history(symbol, period=period, interval=interval, auto_adjust=False)
 
 def fetch_price(symbol) -> Optional[float]:
-    try:
-        t = yf.Ticker(symbol)
-        h = t.history(period="1d")
-        if h is None or h.empty:
+    t# Use shortest fetch possible; fallback to last close 
+    df = _yf_history(symbol, period="5d", interval="1d", auto_adjust=False)
+    if df is not None and not df.empty:
+        try:
+            return float(df["Close"].iloc[-1])
+        except Exception:
             return None
-        return float(h["Close"].iloc[-1])
-    except Exception:
-        return None
+    return None
 
 def fetch_history(symbol: str, period: str="1y", interval: str="1d") -> pd.DataFrame | None:
-    return fetch_ohlcv(symbol, period=period, interval=interval)
+    return _yf_history(symbol, period=period, interval=interval, auto_adjust=False)
+
 
 def sector_etf_for_symbol(symbol: str) -> str | None:
     # Lightweight mapping from sector name to SPDR ETF
@@ -598,6 +652,9 @@ def main() -> None:
                 watchlist = list(saved.get("watchlist", watchlist))
     except Exception:
         balance = 100000.0; portfolio = []; watchlist = []
+
+    if not _has_internet():
+        print(Fore.YELLOW + "⚠ No internet connection detected. Data will show as N/A." + Style.RESET_ALL)
 
     def save_data() -> None:
         data = {
